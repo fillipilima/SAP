@@ -1,0 +1,106 @@
+REPORT zteste_agre.
+
+
+PARAMETERS: p_werks TYPE werks_d.
+
+DATA: ti_agre TYPE TABLE OF ztabela_agre,
+
+      wa_agre TYPE ztabela_agre.
+
+DATA: ls_goodsmvt_header TYPE bapi2017_gm_head_01,
+      ls_goodsmvt_code   TYPE bapi2017_gm_code,
+      ls_return          TYPE bapiret2,
+      lv_mblnr           TYPE bapi2017_gm_head_ret-mat_doc,
+      lv_mjahr           TYPE bapi2017_gm_head_ret-doc_year,
+      lt_goodsmvt_item   TYPE TABLE OF bapi2017_gm_item_create,
+      ls_goodsmvt_item   TYPE bapi2017_gm_item_create,
+      lt_return          TYPE TABLE OF bapiret2,
+      lv_matnr           TYPE qals-matnr,
+      lv_meins           TYPE qals-mengeneinh,
+      lv_menge           TYPE qals-losmenge,
+      lv_lgort(50)       TYPE c,
+      lv_charg           TYPE qals-charg.
+
+lv_lgort = '1000'.
+
+SELECT *
+FROM ztabela_agre
+INTO TABLE ti_agre
+WHERE werks      = p_werks AND
+      processado = space.
+
+IF sy-subrc = 0.
+
+  LOOP AT TI_agre INTO wa_agre.
+
+    CLEAR: ls_goodsmvt_header, ls_goodsmvt_code,
+           lt_goodsmvt_item[], lt_return[].
+           ls_goodsmvt_header-pstng_date = sy-datum.
+           ls_goodsmvt_header-doc_date   = sy-datum.
+           ls_goodsmvt_code-gm_code   = '04'.
+
+    SELECT SINGLE matnr losmenge mengeneinh charg
+      FROM qals
+INTO (lv_matnr, lv_menge, lv_meins,lv_charg )
+  WHERE prueflos = wa_agre-prueflos .
+
+    IF sy-subrc = 0.
+      ls_goodsmvt_item-plant        = wa_agre-werks.
+      ls_goodsmvt_item-move_type    = '344'.
+      ls_goodsmvt_item-material     = lv_matnr.
+      ls_goodsmvt_item-entry_qnt    = lv_menge.
+      ls_goodsmvt_item-entry_uom    = lv_meins.
+      ls_goodsmvt_item-stge_loc     = lv_lgort.
+      ls_goodsmvt_item-batch        = lv_charg.
+
+      APPEND ls_goodsmvt_item TO lt_goodsmvt_item.
+
+    ENDIF.
+
+    CALL FUNCTION 'BAPI_GOODSMVT_CREATE'
+      EXPORTING
+        goodsmvt_header  = ls_goodsmvt_header
+        goodsmvt_code    = ls_goodsmvt_code
+      IMPORTING
+        materialdocument = lv_mblnr
+        matdocumentyear  = lv_mjahr
+      TABLES
+        goodsmvt_item    = lt_goodsmvt_item
+        return           = lt_return.
+
+    "Verifica se a BAPI retornou a mensagem de sucesso padrão (L9-514)
+
+    READ TABLE lt_return TRANSPORTING NO FIELDS
+     WITH KEY type = 'S'
+              id    = 'L9'
+              number = '514'.
+    " Se deu certo, confirma a transação no banco (COMMIT)
+
+    IF sy-subrc = 0.
+
+      DELETE FROM ztabela_agre
+      WHERE prueflos = wa_agre-prueflos AND
+           werks     = wa_agre-werks.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = 'X'.
+
+    ELSE.
+
+      " Se deu erro, percorre as mensagens da BAPI e exibe como erro fatal (Abort)
+
+      LOOP AT lt_return INTO ls_return WHERE type EQ 'E' OR type EQ 'A'.
+        MESSAGE ID ls_return-id TYPE 'A' NUMBER ls_return-number
+                 WITH ls_return-message_v1 ls_return-message_v2
+                      ls_return-message_v3 ls_return-message_v4.
+
+      ENDLOOP.
+
+    ENDIF.
+
+
+  ENDLOOP.
+
+
+ENDIF.
