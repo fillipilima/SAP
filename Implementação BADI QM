@@ -1,0 +1,31 @@
+METHOD if_ex_inspectionlot_update~set_ud_at_save.
+
+  DATA: lv_belnr    TYPE ekbe-belnr,
+        lv_process  TYPE char1,
+        ls_agre     TYPE ztabela_agre.
+
+ "Só processa se houver pedido
+  IF new_insplot-ebeln IS INITIAL
+     OR new_insplot-ebelp IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  " Verifica se existe MIRO
+  SELECT SINGLE belnr
+    INTO @lv_belnr
+    FROM ekbe
+    WHERE ebeln = @new_insplot-ebeln
+      AND ebelp = @new_insplot-ebelp
+      AND bewtp = 'Q'. " MIRO
+
+  IF sy-subrc = 0.
+    ls_agre-processado = space.
+   " Entrada do Job de processamento
+     ls_agre-prueflos   = new_insplot-prueflos.
+     ls_agre-werks      = new_insplot-werk.
+     ls_agre-processado = lv_process.
+     INSERT ztabela_agre FROM ls_agre.
+
+
+  ENDIF.
+ENDMETHOD.
